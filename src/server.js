@@ -22,12 +22,6 @@ export const setupServer = () => {
     }),
   );
 
-  app.get('/', (req, res) => {
-    res.json({
-      message: 'Hello world!',
-    });
-  });
-
   app.use(contactsRouter);
 
   app.use('*', notFoundHandler);
