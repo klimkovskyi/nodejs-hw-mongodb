@@ -4,7 +4,19 @@ import { randomBytes } from 'crypto';
 import { UsersCollection } from '../db/models/user.js';
 import createHttpError from 'http-errors';
 import { SessionsCollection } from '../db/models/session.js';
-import { FIFTEEN_MINUTES, ONE_DAY } from '../constants/constants.js';
+import {
+  FIFTEEN_MINUTES,
+  ONE_DAY,
+  PATH,
+  SMTP,
+  TEMPLATES_DIR,
+} from '../constants/constants.js';
+import { sendEmail } from '../utils/sendMail.js';
+import { env } from '../utils/env.js';
+import handlebars from 'handlebars';
+import path from 'node:path';
+import fs from 'node:fs/promises';
+import jwt from 'jsonwebtoken';
 
 export const registerUser = async (payload) => {
   const user = await UsersCollection.findOne({ email: payload.email });
@@ -84,4 +96,68 @@ export const refreshUsersSession = async ({ sessionId, refreshToken }) => {
     userId: session.userId,
     ...newSession,
   });
+};
+
+export const requestResetToken = async (email) => {
+  const user = await UsersCollection.findOne({ email });
+  if (!user) {
+    throw createHttpError(404, 'User not found');
+  }
+
+  const resetToken = jwt.sign(
+    {
+      sub: user._id,
+      email,
+    },
+    env(SMTP.JWT_SECRET),
+    {
+      expiresIn: 60 * 10,
+    },
+  );
+
+  const resetPasswordTemplatePath = path.join(
+    TEMPLATES_DIR,
+    'reset-password-email.html',
+  );
+
+  const templateSource = (
+    await fs.readFile(resetPasswordTemplatePath)
+  ).toString();
+
+  const template = handlebars.compile(templateSource);
+  const html = template({
+    name: user.name,
+    link: `${env(PATH.APP_DOMAIN)}/reset-password?token=${resetToken}`,
+  });
+
+  try {
+    await sendEmail({
+      from: env(SMTP.SMTP_FROM),
+      to: email,
+      subject: 'Reset your password',
+      html,
+    });
+  } catch (error) {
+    console.log(error);
+    throw createHttpError(500, 'Error in sending email');
+  }
+};
+
+export const resetPassword = async ({ token, password }) => {
+  let payload;
+  try {
+    payload = jwt.verify(token, env('JWT_SECRET'));
+  } catch (error) {
+    throw createHttpError(401, error.message);
+  }
+  const user = await UsersCollection.findById(payload.sub);
+  if (!user) {
+    throw createHttpError(404, 'User not found');
+  }
+  const hashedPassword = await bcrypt.hash(password, 10);
+
+  await UsersCollection.updateOne(
+    { _id: user._id },
+    { password: hashedPassword },
+  );
 };

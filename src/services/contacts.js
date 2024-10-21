@@ -51,7 +51,7 @@ export const createContact = async (payload) => {
   return contact;
 };
 
-export const updateContact = async (contactId, payload, userId) => {
+export const updateContact = async (contactId, userId, payload) => {
   const rawResult = await contactModel.findOneAndUpdate(
     {
       _id: contactId,
@@ -68,6 +68,7 @@ export const updateContact = async (contactId, payload, userId) => {
 
   return {
     contact: rawResult.value,
+    isNew: Boolean(rawResult?.lastErrorObject?.upserted),
   };
 };
 
